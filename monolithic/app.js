@@ -1,0 +1,138 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const { MongoClient, ObjectId } = require('mongodb');
+const app = express();
+
+// MongoDB setup
+const mongoURI = "mongodb+srv://User:User@cluster0.mnu3wim.mongodb.net/tasks?retryWrites=true&w=majority";
+const dbName = 'tasks';
+let db;
+let todosCollection;
+
+// Middleware
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Serve HTML
+app.get('/', async (req, res) => {
+  try {
+    const todos = await todosCollection.find().toArray();
+
+    const todosHtml = todos.map(todo => `
+      <li class="todo-item ${todo.done ? 'done' : ''}">
+        <form method="POST" action="/toggle/${todo._id}" class="action-form">
+          <button type="submit" class="toggle-btn">${todo.done ? "✓" : " "}</button>
+        </form>
+        <span class="task-text">${todo.task}</span>
+        <form method="POST" action="/delete/${todo._id}" class="action-form">
+          <button type="submit" class="delete-btn">×</button>
+        </form>
+      </li>
+    `).join('');
+
+    res.send(`
+      <html>
+        <head>
+          <title>ToDo List -monolithic-</title>
+          <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; }
+            body { background: #f5f5f5; padding: 2rem; }
+            .container { max-width: 800px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+            h1 { color: #2c3e50; margin-bottom: 2rem; font-size: 2.5rem; text-align: center; }
+            .add-form { display: flex; gap: 1rem; margin-bottom: 2rem; }
+            .add-input { flex: 1; padding: 1rem; border: 2px solid #ddd; border-radius: 8px; font-size: 1rem; transition: border-color 0.3s ease; }
+            .add-input:focus { outline: none; border-color: #3498db; }
+            .add-btn { padding: 1rem 2rem; background: #3498db; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; transition: background 0.3s ease; }
+            .add-btn:hover { background: #2980b9; }
+            .todo-list { list-style: none; }
+            .todo-item { display: flex; align-items: center; gap: 1rem; padding: 1rem; background: #f8f9fa; margin-bottom: 1rem; border-radius: 8px; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+            .todo-item:hover { transform: translateY(-2px); box-shadow: 0 3px 8px rgba(0, 0, 0, 0.1); }
+            .todo-item.done { background: #f0f0f0; }
+            .todo-item.done .task-text { color: #95a5a6; text-decoration: line-through; }
+            .task-text { flex: 1; font-size: 1.1rem; }
+            .action-form { display: flex; }
+            .toggle-btn, .delete-btn { width: 32px; height: 32px; border: none; border-radius: 50%; cursor: pointer; font-size: 1.2rem; transition: all 0.3s ease; display: flex; align-items: center; justify-content: center; }
+            .toggle-btn { background: #27ae60; color: white; }
+            .toggle-btn:hover { background: #219a52; }
+            .delete-btn { background: #e74c3c; color: white; }
+            .delete-btn:hover { background: #c0392b; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>ToDo List -monolithic-</h1>
+            <form method="POST" action="/add" class="add-form">
+              <input type="text" name="task" class="add-input" placeholder="What needs to be done?" required>
+              <button type="submit" class="add-btn">Add Task</button>
+            </form>
+            <ul class="todo-list">${todosHtml}</ul>
+          </div>
+        </body>
+      </html>
+    `);
+  } catch (err) {
+    console.error('Error rendering todos:', err);
+    res.status(500).send('Error retrieving todos');
+  }
+});
+
+// Add task
+app.post('/add', async (req, res) => {
+  try {
+    const { task } = req.body;
+    await todosCollection.insertOne({ task, done: false });
+    res.redirect('/');
+  } catch (err) {
+    console.error('Error adding task:', err);
+    res.status(500).send('Error adding task');
+  }
+});
+
+// Toggle done
+app.post('/toggle/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const todo = await todosCollection.findOne({ _id: new ObjectId(id) });
+    const newDone = !todo.done;
+    await todosCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { done: newDone } }
+    );
+    res.redirect('/');
+  } catch (err) {
+    console.error('Error toggling task:', err);
+    res.status(500).send('Error updating task');
+  }
+});
+
+// Delete task
+app.post('/delete/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    await todosCollection.deleteOne({ _id: new ObjectId(id) });
+    res.redirect('/');
+  } catch (err) {
+    console.error('Error deleting task:', err);
+    res.status(500).send('Error deleting task');
+  }
+});
+
+// Connect to MongoDB then start server
+async function startServer() {
+  try {
+    const client = await MongoClient.connect(mongoURI);
+    db = client.db(dbName);
+    todosCollection = db.collection('todos');
+    console.log('Connected to MongoDB');
+    
+    // Start server after DB connection is established
+    const port = 3000;
+    app.listen(port, () => {
+      console.log(`ToDo app running on http://localhost:${port}`);
+    });
+  } catch (err) {
+    console.error('Failed to connect to MongoDB', err);
+    process.exit(1);
+  }
+}
+
+startServer()
